@@ -268,8 +268,40 @@ export default function App() {
     
     // Simulate capture delay
     setTimeout(() => {
-      const timestamp = new Date().getTime();
-      const mockUrl = `https://picsum.photos/seed/capture_${timestamp}/640/480`;
+      const timestamp = new Date();
+      const canvas = document.createElement('canvas');
+      canvas.width = 640;
+      canvas.height = 480;
+      const ctx = canvas.getContext('2d');
+
+      if (ctx) {
+        const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+        gradient.addColorStop(0, '#020617');
+        gradient.addColorStop(1, '#0f172a');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = '#10b981';
+        ctx.font = 'bold 32px monospace';
+        ctx.fillText('ROBOT CAMERA SNAPSHOT', 40, 80);
+
+        ctx.fillStyle = '#e5e7eb';
+        ctx.font = '20px monospace';
+        ctx.fillText(`Captured: ${timestamp.toLocaleString()}`, 40, 120);
+        ctx.fillText(`Mode: ${cameraMode.toUpperCase()}`, 40, 150);
+
+        // Crosshair overlay
+        ctx.strokeStyle = 'rgba(16, 185, 129, 0.5)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 2, 0);
+        ctx.lineTo(canvas.width / 2, canvas.height);
+        ctx.moveTo(0, canvas.height / 2);
+        ctx.lineTo(canvas.width, canvas.height / 2);
+        ctx.stroke();
+      }
+
+      const mockUrl = canvas.toDataURL('image/png');
       setCapturedImages(prev => [mockUrl, ...prev].slice(0, 10));
       setIsRecordingImage(false);
       addLog('Image captured and saved to temporary gallery.');
@@ -486,12 +518,23 @@ export default function App() {
   };
 
   const copyToClipboard = (text: string, topicName: string) => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopyStatus(prev => ({ ...prev, [topicName]: true }));
-      setTimeout(() => {
-        setCopyStatus(prev => ({ ...prev, [topicName]: false }));
-      }, 2000);
-    });
+    if (!navigator.clipboard) {
+      addNotification('warning', 'Clipboard API unavailable in this context.');
+      addLog(`Failed to copy topic ${topicName}: Clipboard API unavailable.`);
+      return;
+    }
+
+    navigator.clipboard.writeText(text)
+      .then(() => {
+        setCopyStatus(prev => ({ ...prev, [topicName]: true }));
+        setTimeout(() => {
+          setCopyStatus(prev => ({ ...prev, [topicName]: false }));
+        }, 2000);
+      })
+      .catch(() => {
+        addNotification('error', 'Copy to clipboard failed.');
+        addLog(`Failed to copy topic ${topicName} to clipboard.`);
+      });
   };
 
   const handleMove = (lx: number, ly: number, az: number) => {
