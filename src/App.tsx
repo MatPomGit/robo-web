@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Battery, Wifi, Activity, Power, Settings, Video, 
   Gamepad2, Cpu, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, 
@@ -26,6 +26,7 @@ export default function App() {
   const [rosbagConfirmAction, setRosbagConfirmAction] = useState<'play' | 'stop' | null>(null);
   const [rosConfirmAction, setRosConfirmAction] = useState<'connect' | 'disconnect' | null>(null);
   const [expandedJoints, setExpandedJoints] = useState<Record<string, boolean>>({});
+  const rosCoreSubscriptionsRef = useRef<ROSLIB.Topic[]>([]);
   
   const [customTopics, setCustomTopics] = useState<{name: string, type: string}[]>([]);
   const [customTopicData, setCustomTopicData] = useState<Record<string, any>>({});
@@ -101,6 +102,11 @@ export default function App() {
     }, 5000);
   }, []);
 
+  const cleanupRosCoreSubscriptions = useCallback(() => {
+    rosCoreSubscriptionsRef.current.forEach((topic) => topic.unsubscribe());
+    rosCoreSubscriptionsRef.current = [];
+  }, []);
+
   const connectROS = (confirmed = false) => {
     if (!confirmed) {
       setRosConfirmAction(rosStatus === 'connected' ? 'disconnect' : 'connect');
@@ -108,6 +114,8 @@ export default function App() {
     }
 
     setRosConfirmAction(null);
+
+    cleanupRosCoreSubscriptions();
 
     if (rosStatus === 'connected' && ros) {
       ros.close();
@@ -131,6 +139,7 @@ export default function App() {
         name: '/battery_state',
         messageType: 'sensor_msgs/BatteryState'
       });
+      rosCoreSubscriptionsRef.current.push(batterySub);
       batterySub.subscribe((msg: any) => {
         if (msg.percentage !== undefined) {
           const level = Math.round(msg.percentage * 100);
@@ -146,6 +155,7 @@ export default function App() {
         name: '/joint_states',
         messageType: 'sensor_msgs/JointState'
       });
+      rosCoreSubscriptionsRef.current.push(jointSub);
       jointSub.subscribe((msg: any) => {
         if (msg.name && msg.position) {
           setJoints(prev => {
@@ -178,6 +188,7 @@ export default function App() {
         name: '/rosout',
         messageType: 'rcl_interfaces/msg/Log'
       });
+      rosCoreSubscriptionsRef.current.push(rosoutSub);
       rosoutSub.subscribe((msg: any) => {
         addLog(`[ROS] ${msg.msg}`);
       });
@@ -187,6 +198,7 @@ export default function App() {
         name: '/utlidar/cloud',
         messageType: 'sensor_msgs/PointCloud2'
       });
+      rosCoreSubscriptionsRef.current.push(scanSub);
       scanSub.subscribe((msg: any) => {
         // PointCloud2 parsing is complex in JS, we'll keep a simplified version
         // or assume a bridge that provides a simpler format if needed.
@@ -202,6 +214,7 @@ export default function App() {
         name: '/scan',
         messageType: 'sensor_msgs/LaserScan'
       });
+      rosCoreSubscriptionsRef.current.push(laserScanSub);
       laserScanSub.subscribe((msg: any) => {
         if (msg.ranges) {
           const points: number[][] = [];
@@ -226,6 +239,7 @@ export default function App() {
         name: '/odom',
         messageType: 'nav_msgs/Odometry'
       });
+      rosCoreSubscriptionsRef.current.push(odomSub);
       odomSub.subscribe((msg: any) => {
         if (msg.pose && msg.pose.pose) {
           const pos = msg.pose.pose.position;
@@ -253,6 +267,7 @@ export default function App() {
     });
 
     rosInstance.on('close', () => {
+      cleanupRosCoreSubscriptions();
       setRosStatus('disconnected');
       setRosErrorMsg('Connection closed.');
       addLog('ROS2 Connection closed.');
@@ -430,9 +445,10 @@ export default function App() {
 
   useEffect(() => {
     return () => {
+      cleanupRosCoreSubscriptions();
       if (ros) ros.close();
     };
-  }, [ros]);
+  }, [cleanupRosCoreSubscriptions, ros]);
 
   // Custom Topics Subscription Effect
   useEffect(() => {
