@@ -12,10 +12,20 @@ import { Robot3D } from './components/Robot3D';
 import { LidarMap } from './components/LidarMap';
 import { Sparkline } from './components/Sparkline';
 
+const getDefaultRosUrl = () => {
+  if (typeof window === 'undefined') {
+    return 'ws://localhost:9090';
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const host = window.location.hostname || 'localhost';
+  return `${protocol}://${host}:9090`;
+};
+
 export default function App() {
   const [rosStatus, setRosStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
   const [rosErrorMsg, setRosErrorMsg] = useState<string>('');
-  const [rosUrl, setRosUrl] = useState('ws://localhost:9090');
+  const [rosUrl, setRosUrl] = useState(getDefaultRosUrl);
   const [ros, setRos] = useState<ROSLIB.Ros | null>(null);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'topics' | 'instructions'>('dashboard');
   const [rosbagStatus, setRosbagStatus] = useState<'idle' | 'recording' | 'playing' | 'paused'>('idle');
@@ -127,9 +137,18 @@ export default function App() {
     setRosStatus('connecting');
     addLog(`Connecting to ROS2 Bridge at ${rosUrl}...`);
 
-    const rosInstance = new ROSLIB.Ros({
-      url: rosUrl
-    });
+    let rosInstance: ROSLIB.Ros;
+    try {
+      rosInstance = new ROSLIB.Ros({
+        url: rosUrl
+      });
+    } catch (error) {
+      setRosStatus('error');
+      setRosErrorMsg('Nieprawidłowy URL bridge ROS2. Popraw adres i spróbuj ponownie.');
+      addLog(`Failed to initialize ROS connection: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      addNotification('error', 'Invalid ROS2 bridge URL');
+      return;
+    }
     rosRef.current = rosInstance;
 
     rosInstance.on('connection', () => {
@@ -748,6 +767,29 @@ export default function App() {
     };
   }, [activeTab, ros, rosStatus, mode]);
 
+  const connectionChecklist = [
+    {
+      id: 'bridge',
+      label: 'Uruchom rosbridge na robocie lub komputerze sterującym (port 9090).',
+      done: true,
+    },
+    {
+      id: 'url',
+      label: 'Zweryfikuj adres bridge w polu URL (domyślnie podstawiany z hosta strony).',
+      done: rosUrl.startsWith('ws://') || rosUrl.startsWith('wss://'),
+    },
+    {
+      id: 'connect',
+      label: 'Kliknij Connect i potwierdź akcję, aby zestawić komunikację ROS2.',
+      done: rosStatus === 'connected',
+    },
+    {
+      id: 'topics',
+      label: 'Przejdź do zakładki Topics i wykonaj Discovery, by dodać subskrypcje.',
+      done: discoveredTopics.length > 0,
+    },
+  ];
+
   return (
     <div className="min-h-screen bg-[#050505] text-neutral-300 font-sans flex flex-col selection:bg-emerald-500/30">
       {/* Notifications Overlay */}
@@ -1103,6 +1145,23 @@ export default function App() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <section className="space-y-4 md:col-span-2">
+                <h3 className="text-lg font-bold text-neutral-200 flex items-center gap-2 border-b border-neutral-800 pb-2">
+                  <ListChecks className="w-5 h-5 text-emerald-400" />
+                  Szybka sekwencja uruchomienia
+                </h3>
+                <div className="bg-neutral-900/50 p-4 rounded-xl border border-neutral-800 space-y-3">
+                  {connectionChecklist.map((step, index) => (
+                    <div key={step.id} className="flex items-start gap-3 text-xs">
+                      <div className={`mt-0.5 w-5 h-5 rounded-full border flex items-center justify-center text-[10px] font-bold ${step.done ? 'border-emerald-500/70 text-emerald-400 bg-emerald-500/10' : 'border-neutral-700 text-neutral-500 bg-black/30'}`}>
+                        {step.done ? <Check className="w-3 h-3" /> : index + 1}
+                      </div>
+                      <div className={`${step.done ? 'text-neutral-300' : 'text-neutral-500'}`}>{step.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
               {/* DDS Communication Routine */}
               <section className="space-y-4 md:col-span-2">
                 <h3 className="text-lg font-bold text-neutral-200 flex items-center gap-2 border-b border-neutral-800 pb-2">
