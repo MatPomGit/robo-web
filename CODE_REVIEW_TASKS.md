@@ -1,22 +1,22 @@
 # Code review – proponowane zadania
 
 ## 1) Literówka / nazewnictwo
-**Zadanie:** Ujednolicić zapis nazwy lidaru w UI z `Unilidar` na poprawną formę `UniLidar` (lub oficjalną nazwę producenta) we wszystkich miejscach interfejsu.
+**Zadanie:** Poprawić zapis `Unilidar` na spójną i poprawną formę (`UniLidar` albo oficjalna nazwa producenta) w interfejsie.
 
-**Dlaczego:** Obecnie nagłówek sekcji używa zapisu `Unitree Lidar (Unilidar)`, co wygląda na literówkę/niespójność nazewnictwa.
+**Dlaczego:** W sekcji mapy widnieje `Unitree Lidar (Unilidar)`, co wygląda na literówkę i obniża czytelność UI.
 
 ## 2) Usunięcie błędu
-**Zadanie:** Dodać jawne odsubskrybowanie tematów ROS utworzonych po połączeniu (`/battery_state`, `/joint_states`, `/rosout`, `/utlidar/cloud`, `/scan`, `/odom`) podczas rozłączania i przed ponownym połączeniem.
+**Zadanie:** Poprawić wyznaczanie yaw z kwaternionu odometrii (zastąpić uproszczenie `2 * atan2(z, w)` pełnym przeliczeniem Euler yaw).
 
-**Dlaczego:** Subskrypcje zakładane w `connectROS` nie są odsubskrybowywane; po reconnectach mogą kumulować callbacki i duplikować logikę/zdarzenia.
+**Dlaczego:** Obecne obliczenie yaw działa poprawnie tylko przy zerowym roll/pitch. Przy rzeczywistych przechyłach robota może generować błędny heading, co wpływa na trajektorię i orientację na mapie.
 
 ## 3) Korekta komentarza / dokumentacji
-**Zadanie:** Zsynchronizować dokumentację topiców kamery z rzeczywistą implementacją: UI opisuje topici RAW (`/image_raw`, `/depth/image_rect_raw`), a kod subskrybuje warianty `.../compressed`.
+**Zadanie:** Ujednolicić opisy topiców kamery w panelu „Quick Start Instructions” z rzeczywistą subskrypcją (`.../compressed`).
 
-**Dlaczego:** To rozbieżność dokumentacyjna, która może wprowadzać w błąd przy diagnozie streamu wideo.
+**Dlaczego:** Instrukcja w UI pokazuje topiki RAW (`/image_raw`, `/depth/image_rect_raw`), a kod subskrybuje wiadomości `sensor_msgs/CompressedImage` na topicach `.../compressed`, co jest mylące podczas diagnostyki.
 
 ## 4) Ulepszenie testu
-**Zadanie:** Dodać test(y) jednostkowe dla budowania komendy rosbag (`toggleRosbag`) po wydzieleniu logiki do czystej funkcji (np. `buildRosbagCommand`).
+**Zadanie:** Wydzielić budowanie komendy rosbag do czystej funkcji (np. `buildRosbagCommand`) i dodać do niej testy jednostkowe.
 
 **Zakres testów (minimum):**
 - `record` bez nazwy i z timestampem,
@@ -24,4 +24,4 @@
 - `play` z nazwą,
 - `stop`/`pause`.
 
-**Dlaczego:** Ta logika ma wiele gałęzi i formatowanie stringów; testy szybko wykryją regresje bez potrzeby uruchamiania ROS.
+**Dlaczego:** Logika `toggleRosbag` ma kilka gałęzi i składanie stringa komendy; testy jednostkowe szybko wychwycą regresje bez uruchamiania ROS.
