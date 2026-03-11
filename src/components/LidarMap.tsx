@@ -175,7 +175,16 @@ export const LidarMap = ({ points, robotPose = { x: 0, y: 0, yaw: 0 }, trajector
 
   const lidarGeometry = useMemo(() => {
     const geometry = new THREE.BufferGeometry();
-    const vertices = new Float32Array(points.flat());
+    const normalizedPoints = points.map((point) => {
+      if (point.length >= 3) {
+        return [point[0], point[1], point[2]];
+      }
+
+      // Allow 2D points ([x, y]) by projecting them to the ground plane.
+      return [point[0] ?? 0, 0, point[1] ?? 0];
+    });
+
+    const vertices = new Float32Array(normalizedPoints.flat());
     geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
     return geometry;
   }, [points]);
