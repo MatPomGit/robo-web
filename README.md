@@ -1,8 +1,17 @@
 # Unitree G1 EDU Controller
 
-Interfejs HMI (Human-Machine Interface) zbudowany w **React + TypeScript + Vite** do monitorowania i sterowania robotem **Unitree G1 EDU** przez **ROS2 bridge (roslib/WebSocket)**.
+Nowoczesny interfejs **HMI (Human-Machine Interface)** zbudowany w **React + TypeScript + Vite** do monitorowania, teleoperacji i diagnostyki robota **Unitree G1 EDU** przez **ROS2 bridge (roslib/WebSocket)**.
+
+Projekt pełni rolę „centrum operatorskiego” — łączy podgląd telemetrii, kontrolę ruchu, eksplorację topiców ROS2 i wizualizację danych 3D w jednym miejscu, dzięki czemu skraca czas od testu funkcji do bezpiecznego wdrożenia.
 
 > ⚠️ Ten projekt ma charakter demonstracyjny/prototypowy. Przed podłączeniem do realnego robota należy wdrożyć warstwę bezpieczeństwa (gateway, watchdog, dead-man switch, E-Stop niezależny od UI).
+
+## Dlaczego ten projekt?
+
+- **Jedna konsola dla operatora i inżyniera** — telemetryka, komendy i diagnostyka ROS2 bez przełączania narzędzi.
+- **Szybkie prototypowanie scenariuszy** — od testów topiców po zdalne sterowanie i analizę logów.
+- **Lepsza obserwowalność** — widoki kamery, mapy/lidaru i modelu 3D pomagają szybciej wykrywać problemy.
+- **Gotowa baza pod rozbudowę** — architektura frontendu, którą łatwo podzielić na moduły serwisowe i domenowe.
 
 ## Najważniejsze możliwości
 
