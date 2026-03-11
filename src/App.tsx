@@ -38,6 +38,7 @@ export default function App() {
   const [subscribedTopicSearch, setSubscribedTopicSearch] = useState('');
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [layout, setLayout] = useState<'default' | 'manual' | 'autonomous'>('default');
+  const activeCameraTopicRef = useRef<string | null>(null);
   
   // Task Execution System
   const [tasks, setTasks] = useState<{ id: string, type: 'move_arm' | 'grasp' | 'move_to', params: any }[]>([]);
@@ -450,31 +451,47 @@ export default function App() {
     };
   }, [cleanupRosCoreSubscriptions, ros]);
 
-  // Custom Topics Subscription Effect
+  // Camera subscription effect (tries multiple common topic names)
   useEffect(() => {
     if (!ros || rosStatus !== 'connected') return;
     
-    const topicName = cameraMode === 'rgb' 
-      ? '/camera/camera/color/image_raw/compressed' 
-      : '/camera/camera/depth/image_rect_raw/compressed';
-      
-    const cameraSub = new ROSLIB.Topic({
-      ros: ros,
-      name: topicName,
-      messageType: 'sensor_msgs/CompressedImage'
-    });
+    activeCameraTopicRef.current = null;
 
-    cameraSub.subscribe((msg: any) => {
-      const imgElement = document.getElementById('robot-camera-feed') as HTMLImageElement;
-      if (imgElement) {
-        imgElement.src = `data:image/jpeg;base64,${msg.data}`;
-      }
+    const topicNames = cameraMode === 'rgb'
+      ? [
+          '/camera/camera/color/image_raw/compressed',
+          '/camera/rgb/image_raw/compressed'
+        ]
+      : [
+          '/camera/camera/depth/image_rect_raw/compressed',
+          '/camera/depth/image_rect_raw/compressed'
+        ];
+
+    const cameraSubs = topicNames.map((name) => {
+      const topic = new ROSLIB.Topic({
+        ros,
+        name,
+        messageType: 'sensor_msgs/CompressedImage'
+      });
+
+      topic.subscribe((msg: any) => {
+        const imgElement = document.getElementById('robot-camera-feed') as HTMLImageElement;
+        if (imgElement && msg?.data) {
+          imgElement.src = `data:image/jpeg;base64,${msg.data}`;
+          if (activeCameraTopicRef.current !== name) {
+            activeCameraTopicRef.current = name;
+            addLog(`Camera stream active on ${name}`);
+          }
+        }
+      });
+
+      return topic;
     });
 
     return () => {
-      cameraSub.unsubscribe();
+      cameraSubs.forEach((topic) => topic.unsubscribe());
     };
-  }, [ros, rosStatus, cameraMode]);
+  }, [ros, rosStatus, cameraMode, addLog]);
 
   // Custom Topics Subscription Effect
   useEffect(() => {
