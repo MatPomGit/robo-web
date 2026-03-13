@@ -21,8 +21,14 @@ export const Sparkline = ({ data, width = 60, height = 20, color = '#10b981' }: 
       .domain([0, data.length - 1])
       .range([0, width]);
 
+    const minValue = d3.min(data) ?? 0;
+    const maxValue = d3.max(data) ?? 1;
+    const hasFlatSeries = minValue === maxValue;
+    const domainMin = hasFlatSeries ? minValue - 1 : minValue;
+    const domainMax = hasFlatSeries ? maxValue + 1 : maxValue;
+
     const y = d3.scaleLinear()
-      .domain([d3.min(data) || 0, d3.max(data) || 1])
+      .domain([domainMin, domainMax])
       .range([height, 0]);
 
     const line = d3.line<number>()
