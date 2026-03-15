@@ -24,6 +24,17 @@ const getDefaultRosUrl = () => {
 };
 
 export default function App() {
+  const createEmptyJointsState = useCallback(() => ({
+    'L_HIP_PITCH': { pos: '--', torque: '--', temp: '--', status: 'normal' as const, posHistory: [], torqueHistory: [] },
+    'L_HIP_ROLL': { pos: '--', torque: '--', temp: '--', status: 'normal' as const, posHistory: [], torqueHistory: [] },
+    'L_KNEE': { pos: '--', torque: '--', temp: '--', status: 'normal' as const, posHistory: [], torqueHistory: [] },
+    'L_ANKLE_PITCH': { pos: '--', torque: '--', temp: '--', status: 'normal' as const, posHistory: [], torqueHistory: [] },
+    'R_HIP_PITCH': { pos: '--', torque: '--', temp: '--', status: 'normal' as const, posHistory: [], torqueHistory: [] },
+    'R_HIP_ROLL': { pos: '--', torque: '--', temp: '--', status: 'normal' as const, posHistory: [], torqueHistory: [] },
+    'R_KNEE': { pos: '--', torque: '--', temp: '--', status: 'normal' as const, posHistory: [], torqueHistory: [] },
+    'R_ANKLE_PITCH': { pos: '--', torque: '--', temp: '--', status: 'normal' as const, posHistory: [], torqueHistory: [] },
+    'TORSO_YAW': { pos: '--', torque: '--', temp: '--', status: 'normal' as const, posHistory: [], torqueHistory: [] },
+  }), []);
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     if (typeof window === 'undefined') {
       return 'dark';
@@ -78,9 +89,10 @@ export default function App() {
   const [trajectory, setTrajectory] = useState<{ x: number, y: number }[]>([]);
   const [notifications, setNotifications] = useState<{ id: string, type: 'info' | 'warning' | 'error', message: string, timestamp: Date }[]>([]);
   
-  const [battery, setBattery] = useState(87);
+  const [battery, setBattery] = useState<number | null>(null);
   const [isRecordingImage, setIsRecordingImage] = useState(false);
   const [capturedImages, setCapturedImages] = useState<string[]>([]);
+  const batteryDisplay = battery !== null ? `${battery}%` : '--';
   const [mode, setMode] = useState('Standby');
   const [pendingMode, setPendingMode] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([
@@ -95,17 +107,7 @@ export default function App() {
     status: 'normal'|'warning'|'error',
     posHistory: number[],
     torqueHistory: number[]
-  }>>({
-    'L_HIP_PITCH': { pos: '12.4°', torque: '2.1 Nm', temp: '38°C', status: 'normal', posHistory: [], torqueHistory: [] },
-    'L_HIP_ROLL': { pos: '-1.2°', torque: '0.5 Nm', temp: '37°C', status: 'normal', posHistory: [], torqueHistory: [] },
-    'L_KNEE': { pos: '-24.1°', torque: '4.5 Nm', temp: '42°C', status: 'warning', posHistory: [], torqueHistory: [] },
-    'L_ANKLE_PITCH': { pos: '11.2°', torque: '1.8 Nm', temp: '36°C', status: 'normal', posHistory: [], torqueHistory: [] },
-    'R_HIP_PITCH': { pos: '12.3°', torque: '2.0 Nm', temp: '37°C', status: 'normal', posHistory: [], torqueHistory: [] },
-    'R_HIP_ROLL': { pos: '1.1°', torque: '0.6 Nm', temp: '36°C', status: 'normal', posHistory: [], torqueHistory: [] },
-    'R_KNEE': { pos: '-24.0°', torque: '4.4 Nm', temp: '39°C', status: 'normal', posHistory: [], torqueHistory: [] },
-    'R_ANKLE_PITCH': { pos: '11.1°', torque: '1.9 Nm', temp: '36°C', status: 'normal', posHistory: [], torqueHistory: [] },
-    'TORSO_YAW': { pos: '0.0°', torque: '0.1 Nm', temp: '35°C', status: 'normal', posHistory: [], torqueHistory: [] },
-  });
+  }>>(createEmptyJointsState);
 
   const addLog = useCallback((msg: string) => {
     setLogs(prev => {
@@ -133,8 +135,11 @@ export default function App() {
     if (demoMode) {
       setDemoMode(false);
       addLog('[DEMO] Tryb demonstracyjny wyłączony.');
+      setBattery(null);
+      setJoints(createEmptyJointsState());
     } else {
       setDemoMode(true);
+      setBattery(87);
       addLog('[DEMO] Tryb demonstracyjny włączony. Dane są symulowane.');
       addNotification('info', 'Tryb Demo aktywny — brak połączenia z robotem');
     }
@@ -307,6 +312,8 @@ export default function App() {
     rosInstance.on('error', (error) => {
       setRosStatus('error');
       setRosErrorMsg('Connection refused or network error.');
+      setBattery(null);
+      setJoints(createEmptyJointsState());
       addLog(`ROS2 Connection Error.`);
       addNotification('error', 'ROS2 Connection Error');
     });
@@ -317,6 +324,8 @@ export default function App() {
       setRos(null);
       setRosStatus('disconnected');
       setRosErrorMsg('Connection closed.');
+      setBattery(null);
+      setJoints(createEmptyJointsState());
       addLog('ROS2 Connection closed.');
       addNotification('info', 'ROS2 Connection Closed');
     });
@@ -914,6 +923,13 @@ export default function App() {
   }, [demoMode]);
 
   useEffect(() => {
+    if (!demoMode && rosStatus !== 'connected') {
+      setBattery(null);
+      setJoints(createEmptyJointsState());
+    }
+  }, [demoMode, rosStatus, createEmptyJointsState]);
+
+  useEffect(() => {
     document.documentElement.dataset.theme = theme;
     window.localStorage.setItem('app-theme', theme);
   }, [theme]);
@@ -1109,7 +1125,7 @@ export default function App() {
           </div>
           <div className="flex items-center gap-2 text-emerald-400">
             <Battery className="w-4 h-4" />
-            <span>{battery}%</span>
+            <span>{batteryDisplay}</span>
           </div>
           <div className="w-px h-6 bg-neutral-800 mx-2"></div>
           
@@ -1683,8 +1699,8 @@ export default function App() {
                 <div className="bg-neutral-900/40 border border-neutral-800/60 rounded-xl p-3 flex flex-col gap-1">
                   <span className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest">Battery Level</span>
                   <div className="flex items-center gap-2">
-                    <Battery className={`w-4 h-4 ${battery < 20 ? 'text-red-400' : 'text-emerald-400'}`} />
-                    <span className={`text-lg font-bold font-mono ${battery < 20 ? 'text-red-400' : 'text-neutral-200'}`}>{battery}%</span>
+                    <Battery className={`w-4 h-4 ${battery !== null && battery < 20 ? 'text-red-400' : 'text-emerald-400'}`} />
+                    <span className={`text-lg font-bold font-mono ${battery !== null && battery < 20 ? 'text-red-400' : 'text-neutral-200'}`}>{batteryDisplay}</span>
                   </div>
                 </div>
                 <div className="bg-neutral-900/40 border border-neutral-800/60 rounded-xl p-3 flex flex-col gap-1">
@@ -1799,11 +1815,11 @@ export default function App() {
                           <div className="flex items-center gap-3">
                             <div className="w-8 h-4 bg-neutral-800 rounded-sm relative overflow-hidden border border-neutral-700">
                               <div 
-                                className={`h-full transition-all duration-500 ${battery < 20 ? 'bg-red-500' : 'bg-emerald-500'}`}
-                                style={{ width: `${battery}%` }}
+                                className={`h-full transition-all duration-500 ${battery !== null && battery < 20 ? 'bg-red-500' : 'bg-emerald-500'}`}
+                                style={{ width: `${battery ?? 0}%` }}
                               ></div>
                             </div>
-                            <span className="text-[11px] font-mono font-bold text-neutral-200">{battery}%</span>
+                            <span className="text-[11px] font-mono font-bold text-neutral-200">{batteryDisplay}</span>
                           </div>
                           
                           <div className="flex items-center gap-3">
