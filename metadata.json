@@ -1,5 +1,0 @@
-{
-  "name": "Unitree G1 EDU Controller",
-  "description": "A control dashboard for the Unitree G1 EDU humanoid robot.",
-  "requestFramePermissions": []
-}

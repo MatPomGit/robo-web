@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] – 2026-03-15
+
+### Added
+- Author attribution: **dr inż. Mateusz Pomianek** added to `package.json`, `README.md`, and `index.html`.
+
+### Changed
+- `README.md`: updated project structure section to accurately reflect current `src/` layout (including `rosbagUtils.ts` and `rosbagUtils.test.ts`); added *Autor* section.
+- Package version bumped from `1.1.0` to `1.2.0`.
+
+### Removed
+- `docs/repo-runtime-audit-2026-03-11.md` – internal runtime audit document; not part of project documentation.
+- `metadata.json` – unused/unreferenced file left from initial scaffolding.
+
 ## [1.1.0] – 2026-03-15
 
 ### Added
