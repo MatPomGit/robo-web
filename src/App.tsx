@@ -738,10 +738,28 @@ export default function App() {
 
   // Keyboard Teleoperation
   useEffect(() => {
+    const shouldIgnoreKeyboardShortcut = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) return false;
+
+      const tagName = target.tagName;
+      return (
+        tagName === 'INPUT' ||
+        tagName === 'TEXTAREA' ||
+        tagName === 'SELECT' ||
+        tagName === 'BUTTON' ||
+        target.isContentEditable
+      );
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger if user is typing in an input
-      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
+      // Don't trigger when user is interacting with form controls/buttons.
+      if (shouldIgnoreKeyboardShortcut(e.target)) return;
       if (activeTab !== 'dashboard') return;
+
+      const controlKeys = ['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd', 'q', 'e', ' ', 'i', 'k', 'j', 'l', 'u', 'o'];
+      if (controlKeys.includes(e.key.toLowerCase())) {
+        e.preventDefault();
+      }
       
       switch(e.key.toLowerCase()) {
         case 'arrowup':
@@ -792,7 +810,10 @@ export default function App() {
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
+      if (shouldIgnoreKeyboardShortcut(e.target)) return;
+
       if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd', 'q', 'e'].includes(e.key.toLowerCase())) {
+        e.preventDefault();
         stopMove();
       }
     };
