@@ -35,6 +35,13 @@ describe('buildRosbagCommand', () => {
       );
     });
 
+
+    it('keeps empty name slot when duration is set without a name', () => {
+      expect(buildRosbagCommand('record', '', false, 45, FIXED_DATE)).toBe(
+        'record::duration=45',
+      );
+    });
+
     it('appends :duration to timestamped name', () => {
       expect(buildRosbagCommand('record', '', true, 60, FIXED_DATE)).toBe(
         `record:${FIXED_TS}:duration=60`,
