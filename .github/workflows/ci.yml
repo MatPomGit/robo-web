@@ -29,6 +29,9 @@ jobs:
       - name: Lint (TypeScript type check)
         run: npm run lint
 
+      - name: Test
+        run: npm test
+
       - name: Build
         run: npm run build
 
