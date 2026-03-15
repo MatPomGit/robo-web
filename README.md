@@ -48,6 +48,8 @@ Projekt pełni rolę „centrum operatorskiego” — łączy podgląd telemetri
 │   ├── main.tsx                  # bootstrap aplikacji
 │   ├── App.tsx                   # główny komponent (UI + logika ROS + sterowanie)
 │   ├── index.css                 # style globalne + Tailwind
+│   ├── rosbagUtils.ts            # helper rosbag2
+│   ├── rosbagUtils.test.ts       # testy jednostkowe rosbag helpers
 │   └── components/
 │       ├── Robot3D.tsx           # widok 3D robota
 │       ├── LidarMap.tsx          # widok mapy/lidaru
@@ -151,6 +153,10 @@ Szczegółową analizę ryzyk i plan wdrożenia znajdziesz w `docs/unitree-g1-co
 - Zacznij od `src/App.tsx` — to główne miejsce, gdzie łączy się UI, ROS i logika sterowania.
 - Następnie przejrzyj `src/components/Robot3D.tsx` i `src/components/LidarMap.tsx`, aby zrozumieć warstwę wizualizacji.
 - Przy większych zmianach rozważ refaktor do mniejszych modułów (np. manager połączenia ROS, serwisy komend, store stanu).
+
+## Autor
+
+**dr inż. Mateusz Pomianek**
 
 ## Licencja
 
