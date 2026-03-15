@@ -5,7 +5,7 @@ import {
   RotateCcw, RotateCw, AlertTriangle, ShieldAlert, Link, Link2Off,
   Circle, Square, Play, Info, LayoutDashboard, Octagon, Database,
   ListChecks, Footprints, Camera, Layout, Maximize2, Monitor, Save, Trash2, ChevronRight, ChevronUp, ChevronDown,
-  Target, Navigation, Share2, Box, Copy, Check
+  Target, Navigation, Share2, Box, Copy, Check, Sun, Moon
 } from 'lucide-react';
 import * as ROSLIB from 'roslib';
 import { buildRosbagCommand } from './rosbagUtils';
@@ -24,6 +24,14 @@ const getDefaultRosUrl = () => {
 };
 
 export default function App() {
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    if (typeof window === 'undefined') {
+      return 'dark';
+    }
+
+    const savedTheme = window.localStorage.getItem('app-theme');
+    return savedTheme === 'light' ? 'light' : 'dark';
+  });
   const [rosStatus, setRosStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
   const [rosErrorMsg, setRosErrorMsg] = useState<string>('');
   const [rosUrl, setRosUrl] = useState(getDefaultRosUrl);
@@ -884,6 +892,19 @@ export default function App() {
     };
   }, [demoMode]);
 
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    window.localStorage.setItem('app-theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme((prev) => {
+      const nextTheme = prev === 'dark' ? 'light' : 'dark';
+      addNotification('info', `Włączono ${nextTheme === 'light' ? 'jasny' : 'ciemny'} motyw.`);
+      return nextTheme;
+    });
+  };
+
   const connectionChecklist = [
     {
       id: 'bridge',
@@ -908,7 +929,7 @@ export default function App() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#050505] text-neutral-300 font-sans flex flex-col selection:bg-emerald-500/30">
+    <div className={`theme-shell min-h-screen bg-[#050505] text-neutral-300 font-sans flex flex-col selection:bg-emerald-500/30 ${theme === 'light' ? 'theme-light' : ''}`}>
       {/* Notifications Overlay */}
       <div className="fixed top-20 right-6 z-[100] flex flex-col gap-3 pointer-events-none">
         {notifications.map(n => (
@@ -986,6 +1007,16 @@ export default function App() {
               <Info className="w-3 h-3" /> Instrukcja
             </button>
           </div>
+
+          {/* Theme Toggle */}
+          <button
+            onClick={toggleTheme}
+            title={theme === 'dark' ? 'Przełącz na jasny motyw' : 'Przełącz na ciemny motyw'}
+            className="px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-wider uppercase transition-all border flex items-center gap-1 bg-neutral-900/50 text-neutral-500 border-neutral-800 hover:text-neutral-300 hover:border-neutral-700"
+          >
+            {theme === 'dark' ? <Sun className="w-3 h-3" /> : <Moon className="w-3 h-3" />}
+            {theme === 'dark' ? 'LIGHT' : 'DARK'}
+          </button>
 
           {/* Demo Mode Toggle */}
           <button
