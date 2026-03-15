@@ -8,6 +8,7 @@ import {
   Target, Navigation, Share2, Box, Copy, Check
 } from 'lucide-react';
 import * as ROSLIB from 'roslib';
+import { buildRosbagCommand } from './rosbagUtils';
 import { Robot3D } from './components/Robot3D';
 import { LidarMap } from './components/LidarMap';
 import { Sparkline } from './components/Sparkline';
@@ -651,21 +652,9 @@ export default function App() {
     }
 
     const rosbagCmd = new ROSLIB.Topic({ ros: ros, name: '/rosbag_cmd', messageType: 'std_msgs/String' });
-    
-    let cmdData: string = action;
-    let finalName = rosbagName.trim();
-    
-    if (action === 'record') {
-      if (rosbagUseTimestamp) {
-        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        finalName = finalName ? `${finalName}_${ts}` : ts;
-      }
-      if (finalName) cmdData = `${action}:${finalName}`;
-      if (rosbagDuration > 0) cmdData += `:duration=${rosbagDuration}`;
-    } else if (action === 'play' && finalName) {
-      cmdData = `${action}:${finalName}`;
-    }
-    
+
+    const cmdData = buildRosbagCommand(action, rosbagName.trim(), rosbagUseTimestamp, rosbagDuration);
+
     rosbagCmd.publish({ data: cmdData } as any);
     
     if (action === 'record') setRosbagStatus('recording');

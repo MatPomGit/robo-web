@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] – 2026-03-15
+
+### Added
+- `buildRosbagCommand` pure helper function extracted from `toggleRosbag` (`src/rosbagUtils.ts`).
+- Unit-test suite for `buildRosbagCommand` using Vitest (`src/rosbagUtils.test.ts`) covering all action branches and edge cases (record with/without name, timestamp, duration; play with/without name; stop; pause).
+- `vitest` added as a dev dependency; `npm test` script added to `package.json`.
+
+### Fixed
+- Corrected Unilidar label in the Map/LiDAR view (`Unilidar` → `UniLidar`).
+- Robust yaw extraction from odometry quaternion (full Euler formula, works with non-zero roll/pitch).
+- Camera topic names in Quick Start Instructions panel now match actual subscriptions (`/compressed`).
+
+### Changed
+- Package version bumped from `1.0.0` to `1.1.0`.
+
 ## [1.0.0] – 2026-03-14
 
 ### Added
