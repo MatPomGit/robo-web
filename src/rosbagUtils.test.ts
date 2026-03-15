@@ -35,6 +35,18 @@ describe('buildRosbagCommand', () => {
       );
     });
 
+    it('normalizes fractional duration to whole seconds', () => {
+      expect(buildRosbagCommand('record', 'bag', false, 30.8, FIXED_DATE)).toBe(
+        'record:bag:duration=30',
+      );
+    });
+
+    it('ignores invalid duration values', () => {
+      expect(buildRosbagCommand('record', 'bag', false, Number.NaN, FIXED_DATE)).toBe(
+        'record:bag',
+      );
+    });
+
 
     it('keeps empty name slot when duration is set without a name', () => {
       expect(buildRosbagCommand('record', '', false, 45, FIXED_DATE)).toBe(
@@ -51,6 +63,12 @@ describe('buildRosbagCommand', () => {
     it('does NOT append :duration when duration is 0 (infinite)', () => {
       const cmd = buildRosbagCommand('record', 'bag', false, 0, FIXED_DATE);
       expect(cmd).not.toContain(':duration');
+    });
+
+    it('trims bag name before generating command', () => {
+      expect(buildRosbagCommand('record', '  my_bag  ', false, 0, FIXED_DATE)).toBe(
+        'record:my_bag',
+      );
     });
   });
 

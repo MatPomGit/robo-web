@@ -16,7 +16,8 @@ export function buildRosbagCommand(
   now: Date = new Date(),
 ): string {
   let cmdData: string = action;
-  let finalName = name;
+  let finalName = name.trim();
+  const sanitizedDuration = Number.isFinite(duration) ? Math.floor(duration) : 0;
 
   if (action === 'record') {
     if (useTimestamp) {
@@ -24,10 +25,10 @@ export function buildRosbagCommand(
       finalName = finalName ? `${finalName}_${ts}` : ts;
     }
     if (finalName) cmdData = `${action}:${finalName}`;
-    if (duration > 0) {
+    if (sanitizedDuration > 0) {
       // Keep the name slot explicit when duration is set without a bag name,
       // so downstream parsers reading action:name:duration stay aligned.
-      cmdData += `${finalName ? ':' : '::'}duration=${duration}`;
+      cmdData += `${finalName ? ':' : '::'}duration=${sanitizedDuration}`;
     }
   } else if (action === 'play' && finalName) {
     cmdData = `${action}:${finalName}`;
