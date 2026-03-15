@@ -24,7 +24,11 @@ export function buildRosbagCommand(
       finalName = finalName ? `${finalName}_${ts}` : ts;
     }
     if (finalName) cmdData = `${action}:${finalName}`;
-    if (duration > 0) cmdData += `:duration=${duration}`;
+    if (duration > 0) {
+      // Keep the name slot explicit when duration is set without a bag name,
+      // so downstream parsers reading action:name:duration stay aligned.
+      cmdData += `${finalName ? ':' : '::'}duration=${duration}`;
+    }
   } else if (action === 'play' && finalName) {
     cmdData = `${action}:${finalName}`;
   }
