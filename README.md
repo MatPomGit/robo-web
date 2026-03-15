@@ -1,5 +1,7 @@
 # Unitree G1 EDU Controller
 
+![CI](https://github.com/MatPomGit/LabAiHum-RoboController/actions/workflows/ci.yml/badge.svg)
+
 Nowoczesny interfejs **HMI (Human-Machine Interface)** zbudowany w **React + TypeScript + Vite** do monitorowania, teleoperacji i diagnostyki robota **Unitree G1 EDU** przez **ROS2 bridge (roslib/WebSocket)**.
 
 Projekt pełni rolę „centrum operatorskiego” — łączy podgląd telemetrii, kontrolę ruchu, eksplorację topiców ROS2 i wizualizację danych 3D w jednym miejscu, dzięki czemu skraca czas od testu funkcji do bezpiecznego wdrożenia.
@@ -63,7 +65,17 @@ Projekt pełni rolę „centrum operatorskiego” — łączy podgląd telemetri
 - npm 10+
 - Działający ROS2 bridge dostępny przez WebSocket (np. `rosbridge_server`)
 
-## Szybki start
+## Szybki start (plug-and-play)
+
+Najprostszy sposób na uruchomienie projektu – jeden skrypt wykona za Ciebie sprawdzenie środowiska, instalację zależności i (opcjonalnie) budowanie:
+
+```bash
+bash setup.sh          # instalacja zależności
+bash setup.sh --build  # instalacja + produkcyjny build
+npm run dev            # uruchomienie serwera deweloperskiego
+```
+
+### Ręczna instalacja
 
 ```bash
 npm install
@@ -73,6 +85,22 @@ npm run dev
 Domyślnie aplikacja startuje na:
 
 - `http://localhost:3000`
+
+## CI/CD i release
+
+Projekt korzysta z GitHub Actions:
+
+- **CI** (`.github/workflows/ci.yml`) – uruchamia lint TypeScript i build Vite przy każdym pushu i pull requeście.
+- **Release** (`.github/workflows/release.yml`) – tworzy automatyczny GitHub Release z archiwum ZIP przy każdym tagu `v*.*.*`.
+
+Aby wypuścić nową wersję:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+Workflow sam zbuduje projekt i opublikuje release na GitHubie.
 
 ## Dostępne skrypty
 
