@@ -17,7 +17,7 @@ export default defineConfig(() => {
       hmr: process.env.DISABLE_HMR !== 'true',
     },
     test: {
-      environment: 'node',
+      environment: 'jsdom',
     },
   };
 });

@@ -864,7 +864,7 @@ export default function App() {
 
       // Battery slow drain (~1% every 30 s at 100 ms interval)
       if (batteryTick % 300 === 0) {
-        setBattery(prev => Math.max(20, prev - 1));
+        setBattery(prev => Math.max(20, (prev ?? 100) - 1));
       }
 
       // Joint oscillations
