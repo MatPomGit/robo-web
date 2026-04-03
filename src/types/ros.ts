@@ -102,3 +102,13 @@ export interface Twist {
   linear: { x: number; y: number; z: number };
   angular: { x: number; y: number; z: number };
 }
+
+/** Joint state data used in the UI */
+export interface JointStateData {
+  pos: string;
+  torque: string;
+  temp: string;
+  status: 'normal' | 'warning' | 'error';
+  posHistory: number[];
+  torqueHistory: number[];
+}
