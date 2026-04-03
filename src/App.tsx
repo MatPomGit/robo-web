@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Battery, Wifi, Activity, Power, Settings, Video, 
   Gamepad2, Cpu, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, 
-  RotateCcw, RotateCw, AlertTriangle, ShieldAlert, Link, Link2Off,
+  RotateCcw, RotateCw, AlertTriangle, ShieldAlert,
   Circle, Square, Play, Info, LayoutDashboard, Octagon, Database,
   ListChecks, Footprints, Camera, Layout, Maximize2, Monitor, Save, Trash2, ChevronRight, ChevronUp, ChevronDown,
   Target, Navigation, Share2, Box, Copy, Check, Sun, Moon
@@ -12,6 +12,19 @@ import { buildRosbagCommand } from './rosbagUtils';
 import { Robot3D } from './components/Robot3D';
 import { LidarMap } from './components/LidarMap';
 import { Sparkline } from './components/Sparkline';
+import { BatteryState, JointState, RosLog, PointCloud2, LaserScan, Odometry, CompressedImage, JointStateData } from './types/ros';
+import {
+  LOG_HISTORY_SIZE, TRAJECTORY_HISTORY_SIZE, SIMULATION_TICK_MS,
+  BATTERY_DRAIN_TICKS, FOOTSTEP_SIZE_M, MOVEMENT_THRESHOLD_M,
+  MAX_LIDAR_NOISE_M, NOTIFICATION_TTL_MS, NOTIFICATION_MAX,
+  CAPTURED_IMAGES_MAX, CAMERA_CAPTURE_DELAY_MS, COPY_STATUS_TTL_MS,
+  JOINT_HISTORY_SIZE, FOOTSTEP_PLAN_DELAY_MS, TASK_EXECUTION_MS,
+  FOOTSTEP_EXECUTION_MS, PLAYBACK_INTERVAL_MS, DEMO_DISCOVERY_DELAY_MS,
+  ROSBAG_MAX_DURATION_S, ID_SUBSTR_START, ID_SUBSTR_END,
+} from './constants';
+import { useKeyboardControls } from './hooks/useKeyboardControls';
+import { NotificationToast } from './components/NotificationToast';
+import { ConnectionPanel } from './components/ConnectionPanel';
 
 const getDefaultRosUrl = () => {
   if (typeof window === 'undefined') {
@@ -23,6 +36,16 @@ const getDefaultRosUrl = () => {
   return `${protocol}://${host}:9090`;
 };
 
+/**
+ * Main application component for the Unitree G1 EDU HMI.
+ *
+ * Manages ROS2 connection state, telemetry subscriptions, robot control,
+ * and renders the full dashboard UI.
+ *
+ * @remarks
+ * Requires a running rosbridge_server instance to connect to a real robot.
+ * Demo mode is available for testing without a robot.
+ */
 export default function App() {
   const createEmptyJointsState = useCallback(() => ({
     'L_HIP_PITCH': { pos: '--', torque: '--', temp: '--', status: 'normal' as const, posHistory: [], torqueHistory: [] },
@@ -59,9 +82,18 @@ export default function App() {
   const [expandedJoints, setExpandedJoints] = useState<Record<string, boolean>>({});
   const rosCoreSubscriptionsRef = useRef<ROSLIB.Topic[]>([]);
   const rosRef = useRef<ROSLIB.Ros | null>(null);
+  const cmdVelRef = useRef<ROSLIB.Topic | null>(null);
+  const robotModeCmdRef = useRef<ROSLIB.Topic | null>(null);
+  const rosbagCmdRef = useRef<ROSLIB.Topic | null>(null);
+  const armLeftCmdRef = useRef<ROSLIB.Topic | null>(null);
+  const armRightCmdRef = useRef<ROSLIB.Topic | null>(null);
+  const taskStatusRef = useRef<ROSLIB.Topic | null>(null);
+  const footstepStatusRef = useRef<ROSLIB.Topic | null>(null);
+  const notificationTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   const [customTopics, setCustomTopics] = useState<{name: string, type: string}[]>([]);
-  const [customTopicData, setCustomTopicData] = useState<Record<string, any>>({});
+  const [customTopicData, setCustomTopicData] = useState<Record<string, unknown>>({});
   const [copyStatus, setCopyStatus] = useState<Record<string, boolean>>({});
   const [customTopicName, setCustomTopicName] = useState('');
   const [customTopicType, setCustomTopicType] = useState('');
@@ -73,7 +105,7 @@ export default function App() {
   const activeCameraTopicRef = useRef<string | null>(null);
   
   // Task Execution System
-  const [tasks, setTasks] = useState<{ id: string, type: 'move_arm' | 'grasp' | 'move_to', params: any }[]>([]);
+  const [tasks, setTasks] = useState<{ id: string, type: 'move_arm' | 'grasp' | 'move_to', params: Record<string, unknown> }[]>([]);
   const [isTaskExecuting, setIsTaskExecuting] = useState(false);
   const [currentTaskIndex, setCurrentTaskIndex] = useState(-1);
 
@@ -100,30 +132,23 @@ export default function App() {
     '[10:42:05] Waiting for ROS2 Bridge connection...',
   ]);
 
-  const [joints, setJoints] = useState<Record<string, { 
-    pos: string, 
-    torque: string, 
-    temp: string, 
-    status: 'normal'|'warning'|'error',
-    posHistory: number[],
-    torqueHistory: number[]
-  }>>(createEmptyJointsState);
+  const [joints, setJoints] = useState<Record<string, JointStateData>>(createEmptyJointsState);
 
   const addLog = useCallback((msg: string) => {
     setLogs(prev => {
       const newLogs = [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev];
-      return newLogs.slice(0, 50);
+      return newLogs.slice(0, LOG_HISTORY_SIZE);
     });
   }, []);
 
   const addNotification = useCallback((type: 'info' | 'warning' | 'error', message: string) => {
-    const id = Math.random().toString(36).substring(2, 9);
-    setNotifications(prev => [{ id, type, message, timestamp: new Date() }, ...prev].slice(0, 5));
-    
-    // Auto-remove after 5 seconds
-    setTimeout(() => {
+    const id = Math.random().toString(36).substring(ID_SUBSTR_START, ID_SUBSTR_END);
+    setNotifications(prev => [{ id, type, message, timestamp: new Date() }, ...prev].slice(0, NOTIFICATION_MAX));
+    const timer = setTimeout(() => {
       setNotifications(prev => prev.filter(n => n.id !== id));
-    }, 5000);
+      delete notificationTimersRef.current[id];
+    }, NOTIFICATION_TTL_MS);
+    notificationTimersRef.current[id] = timer;
   }, []);
 
   const cleanupRosCoreSubscriptions = useCallback(() => {
@@ -188,13 +213,18 @@ export default function App() {
         messageType: 'sensor_msgs/BatteryState'
       });
       rosCoreSubscriptionsRef.current.push(batterySub);
-      batterySub.subscribe((msg: any) => {
-        if (msg.percentage !== undefined) {
-          const level = Math.round(msg.percentage * 100);
-          setBattery(level);
-          if (level < 20) {
-            addNotification('warning', `Low Battery: ${level}%`);
+      batterySub.subscribe((msg: unknown) => {
+        try {
+          const m = msg as BatteryState;
+          if (m.percentage !== undefined) {
+            const level = Math.round(m.percentage * 100);
+            setBattery(level);
+            if (level < 20) {
+              addNotification('warning', `Low Battery: ${level}%`);
+            }
           }
+        } catch (err) {
+          addLog(`[ERROR] Battery message parsing failed: ${err instanceof Error ? err.message : String(err)}`);
         }
       });
 
@@ -204,30 +234,35 @@ export default function App() {
         messageType: 'sensor_msgs/JointState'
       });
       rosCoreSubscriptionsRef.current.push(jointSub);
-      jointSub.subscribe((msg: any) => {
-        if (msg.name && msg.position) {
-          setJoints(prev => {
-            const next = { ...prev };
-            msg.name.forEach((name: string, i: number) => {
-              if (next[name]) {
-                const posVal = msg.position[i];
-                const posDeg = (posVal * 180 / Math.PI).toFixed(1);
-                const effort = msg.effort && msg.effort[i] ? msg.effort[i] : 0.0;
-                
-                const posHistory = [...(next[name].posHistory || []), posVal].slice(-30);
-                const torqueHistory = [...(next[name].torqueHistory || []), effort].slice(-30);
+      jointSub.subscribe((msg: unknown) => {
+        try {
+          const m = msg as JointState;
+          if (m.name && m.position) {
+            setJoints(prev => {
+              const next = { ...prev };
+              m.name.forEach((name: string, i: number) => {
+                if (next[name]) {
+                  const posVal = m.position[i];
+                  const posDeg = (posVal * 180 / Math.PI).toFixed(1);
+                  const effort = m.effort && m.effort[i] ? m.effort[i] : 0.0;
+                  
+                  const posHistory = [...(next[name].posHistory || []), posVal].slice(-JOINT_HISTORY_SIZE);
+                  const torqueHistory = [...(next[name].torqueHistory || []), effort].slice(-JOINT_HISTORY_SIZE);
 
-                next[name] = { 
-                  ...next[name], 
-                  pos: `${posDeg}°`, 
-                  torque: `${effort.toFixed(1)} Nm`,
-                  posHistory,
-                  torqueHistory
-                };
-              }
+                  next[name] = { 
+                    ...next[name], 
+                    pos: `${posDeg}°`, 
+                    torque: `${effort.toFixed(1)} Nm`,
+                    posHistory,
+                    torqueHistory
+                  };
+                }
+              });
+              return next;
             });
-            return next;
-          });
+          }
+        } catch (err) {
+          addLog(`[ERROR] Joint state parsing failed: ${err instanceof Error ? err.message : String(err)}`);
         }
       });
 
@@ -237,8 +272,12 @@ export default function App() {
         messageType: 'rcl_interfaces/msg/Log'
       });
       rosCoreSubscriptionsRef.current.push(rosoutSub);
-      rosoutSub.subscribe((msg: any) => {
-        addLog(`[ROS] ${msg.msg}`);
+      rosoutSub.subscribe((msg: unknown) => {
+        try {
+          addLog(`[ROS] ${(msg as RosLog).msg}`);
+        } catch (err) {
+          addLog(`[ERROR] Rosout parsing failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
       });
 
       const scanSub = new ROSLIB.Topic({
@@ -247,13 +286,13 @@ export default function App() {
         messageType: 'sensor_msgs/PointCloud2'
       });
       rosCoreSubscriptionsRef.current.push(scanSub);
-      scanSub.subscribe((msg: any) => {
-        // PointCloud2 parsing is complex in JS, we'll keep a simplified version
-        // or assume a bridge that provides a simpler format if needed.
-        // For now, we'll keep the logic but update the topic name.
-        // In a real app, we'd use a PointCloud2 decoder.
-        if (msg.data) {
-          addLog('Received PointCloud2 data from /utlidar/cloud');
+      scanSub.subscribe((msg: unknown) => {
+        try {
+          if ((msg as PointCloud2).data) {
+            addLog('Received PointCloud2 data from /utlidar/cloud');
+          }
+        } catch (err) {
+          addLog(`[ERROR] PointCloud2 parsing failed: ${err instanceof Error ? err.message : String(err)}`);
         }
       });
 
@@ -263,22 +302,27 @@ export default function App() {
         messageType: 'sensor_msgs/LaserScan'
       });
       rosCoreSubscriptionsRef.current.push(laserScanSub);
-      laserScanSub.subscribe((msg: any) => {
-        if (msg.ranges) {
-          const points: number[][] = [];
-          const angleMin = msg.angle_min;
-          const angleIncrement = msg.angle_increment;
-          msg.ranges.forEach((range: number, i: number) => {
-            if (range > msg.range_min && range < msg.range_max) {
-              const angle = angleMin + i * angleIncrement;
-              points.push([
-                range * Math.cos(angle),
-                0,
-                range * Math.sin(angle)
-              ]);
-            }
-          });
-          setLidarPoints(points);
+      laserScanSub.subscribe((msg: unknown) => {
+        try {
+          const m = msg as LaserScan;
+          if (m.ranges) {
+            const points: number[][] = [];
+            const angleMin = m.angle_min;
+            const angleIncrement = m.angle_increment;
+            m.ranges.forEach((range: number, i: number) => {
+              if (range > m.range_min && range < m.range_max) {
+                const angle = angleMin + i * angleIncrement;
+                points.push([
+                  range * Math.cos(angle),
+                  0,
+                  range * Math.sin(angle)
+                ]);
+              }
+            });
+            setLidarPoints(points);
+          }
+        } catch (err) {
+          addLog(`[ERROR] LaserScan parsing failed: ${err instanceof Error ? err.message : String(err)}`);
         }
       });
 
@@ -288,23 +332,28 @@ export default function App() {
         messageType: 'nav_msgs/Odometry'
       });
       rosCoreSubscriptionsRef.current.push(odomSub);
-      odomSub.subscribe((msg: any) => {
-        if (msg.pose && msg.pose.pose) {
-          const pos = msg.pose.pose.position;
-          const ori = msg.pose.pose.orientation;
-          // Robust yaw extraction from quaternion (works with non-zero roll/pitch)
-          const sinyCosp = 2 * (ori.w * ori.z + ori.x * ori.y);
-          const cosyCosp = 1 - 2 * (ori.y * ori.y + ori.z * ori.z);
-          const yaw = Math.atan2(sinyCosp, cosyCosp);
-          setRobotPose({ x: pos.x, y: pos.y, yaw });
-          
-          setTrajectory(prev => {
-            const last = prev[prev.length - 1];
-            if (!last || Math.sqrt((last.x - pos.x)**2 + (last.y - pos.y)**2) > 0.1) {
-              return [...prev, { x: pos.x, y: pos.y }].slice(-200);
-            }
-            return prev;
-          });
+      odomSub.subscribe((msg: unknown) => {
+        try {
+          const m = msg as Odometry;
+          if (m.pose && m.pose.pose) {
+            const pos = m.pose.pose.position;
+            const ori = m.pose.pose.orientation;
+            // Robust yaw extraction from quaternion (works with non-zero roll/pitch)
+            const sinyCosp = 2 * (ori.w * ori.z + ori.x * ori.y);
+            const cosyCosp = 1 - 2 * (ori.y * ori.y + ori.z * ori.z);
+            const yaw = Math.atan2(sinyCosp, cosyCosp);
+            setRobotPose({ x: pos.x, y: pos.y, yaw });
+            
+            setTrajectory(prev => {
+              const last = prev[prev.length - 1];
+              if (!last || Math.sqrt((last.x - pos.x)**2 + (last.y - pos.y)**2) > MOVEMENT_THRESHOLD_M) {
+                return [...prev, { x: pos.x, y: pos.y }].slice(-TRAJECTORY_HISTORY_SIZE);
+              }
+              return prev;
+            });
+          }
+        } catch (err) {
+          addLog(`[ERROR] Odometry parsing failed: ${err instanceof Error ? err.message : String(err)}`);
         }
       });
     });
@@ -373,15 +422,15 @@ export default function App() {
       }
 
       const mockUrl = canvas.toDataURL('image/png');
-      setCapturedImages(prev => [mockUrl, ...prev].slice(0, 10));
+      setCapturedImages(prev => [mockUrl, ...prev].slice(0, CAPTURED_IMAGES_MAX));
       setIsRecordingImage(false);
       addLog('Image captured and saved to temporary gallery.');
-    }, 800);
+    }, CAMERA_CAPTURE_DELAY_MS);
   };
 
-  const addTask = (type: 'move_arm' | 'grasp' | 'move_to', params: any) => {
+  const addTask = (type: 'move_arm' | 'grasp' | 'move_to', params: Record<string, unknown>) => {
     const newTask = {
-      id: Math.random().toString(36).substring(2, 9),
+      id: Math.random().toString(36).substring(ID_SUBSTR_START, ID_SUBSTR_END),
       type,
       params
     };
@@ -422,12 +471,10 @@ export default function App() {
       const task = tasks[i];
       addLog(`Executing task ${i + 1}/${tasks.length}: ${task.type.replace('_', ' ')}`);
       
-      // Simulate task execution time
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, TASK_EXECUTION_MS));
       
       if (ros && rosStatus === 'connected') {
-        const taskTopic = new ROSLIB.Topic({ ros, name: '/task_status', messageType: 'std_msgs/String' });
-        taskTopic.publish({ data: `COMPLETED: ${task.type}` } as any);
+        taskStatusRef.current?.publish({ data: `COMPLETED: ${task.type}` } as unknown);
       }
     }
     
@@ -444,7 +491,7 @@ export default function App() {
     setTimeout(() => {
       const newSteps: { x: number, y: number, side: 'left' | 'right' }[] = [];
       const dist = Math.sqrt(targetPose.x ** 2 + targetPose.y ** 2);
-      const stepCount = Math.ceil(dist / 0.3); // 30cm steps
+      const stepCount = Math.ceil(dist / FOOTSTEP_SIZE_M); // 30cm steps
       
       for (let i = 1; i <= stepCount; i++) {
         const ratio = i / stepCount;
@@ -458,7 +505,7 @@ export default function App() {
       setFootsteps(newSteps);
       setIsPlanningFootsteps(false);
       addLog(`Generated ${newSteps.length} footsteps.`);
-    }, 1200);
+    }, FOOTSTEP_PLAN_DELAY_MS);
   };
 
   const executeFootsteps = async () => {
@@ -467,13 +514,11 @@ export default function App() {
     
     for (let i = 0; i < footsteps.length; i++) {
       const step = footsteps[i];
-      // Simulate step
-      await new Promise(resolve => setTimeout(resolve, 800));
+      await new Promise(resolve => setTimeout(resolve, FOOTSTEP_EXECUTION_MS));
       setRobotPose(prev => ({ ...prev, x: step.x, y: step.y }));
       
       if (ros && rosStatus === 'connected') {
-        const stepTopic = new ROSLIB.Topic({ ros, name: '/footstep_status', messageType: 'std_msgs/String' });
-        stepTopic.publish({ data: `STEP: ${i + 1}/${footsteps.length} (${step.side})` } as any);
+        footstepStatusRef.current?.publish({ data: `STEP: ${i + 1}/${footsteps.length} (${step.side})` } as unknown);
       }
     }
     
@@ -499,7 +544,7 @@ export default function App() {
         ]);
         setIsDiscovering(false);
         addLog('[DEMO] Odkryto 10 symulowanych topiców ROS2.');
-      }, 600);
+      }, DEMO_DISCOVERY_DELAY_MS);
       return;
     }
     if (!ros || rosStatus !== 'connected') return;
@@ -523,8 +568,30 @@ export default function App() {
     return () => {
       cleanupRosCoreSubscriptions();
       rosRef.current?.close();
+      Object.values(notificationTimersRef.current).forEach(clearTimeout);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     };
-  }, [cleanupRosCoreSubscriptions]); // cleanupRosCoreSubscriptions is stable (useCallback with [])
+  }, [cleanupRosCoreSubscriptions]);
+
+  useEffect(() => {
+    if (!ros) {
+      cmdVelRef.current = null;
+      robotModeCmdRef.current = null;
+      rosbagCmdRef.current = null;
+      armLeftCmdRef.current = null;
+      armRightCmdRef.current = null;
+      taskStatusRef.current = null;
+      footstepStatusRef.current = null;
+      return;
+    }
+    cmdVelRef.current = new ROSLIB.Topic({ ros, name: '/cmd_vel', messageType: 'geometry_msgs/Twist' });
+    robotModeCmdRef.current = new ROSLIB.Topic({ ros, name: '/robot_mode', messageType: 'std_msgs/String' });
+    rosbagCmdRef.current = new ROSLIB.Topic({ ros, name: '/rosbag_cmd', messageType: 'std_msgs/String' });
+    armLeftCmdRef.current = new ROSLIB.Topic({ ros, name: '/arm/left/joint_cmd', messageType: 'std_msgs/Float64' });
+    armRightCmdRef.current = new ROSLIB.Topic({ ros, name: '/arm/right/joint_cmd', messageType: 'std_msgs/Float64' });
+    taskStatusRef.current = new ROSLIB.Topic({ ros, name: '/task_status', messageType: 'std_msgs/String' });
+    footstepStatusRef.current = new ROSLIB.Topic({ ros, name: '/footstep_status', messageType: 'std_msgs/String' });
+  }, [ros]);
 
   // Camera subscription effect (tries multiple common topic names)
   useEffect(() => {
@@ -549,14 +616,19 @@ export default function App() {
         messageType: 'sensor_msgs/CompressedImage'
       });
 
-      topic.subscribe((msg: any) => {
-        const imgElement = document.getElementById('robot-camera-feed') as HTMLImageElement;
-        if (imgElement && msg?.data) {
-          imgElement.src = `data:image/jpeg;base64,${msg.data}`;
-          if (activeCameraTopicRef.current !== name) {
-            activeCameraTopicRef.current = name;
-            addLog(`Camera stream active on ${name}`);
+      topic.subscribe((msg: unknown) => {
+        try {
+          const m = msg as CompressedImage;
+          const imgElement = document.getElementById('robot-camera-feed') as HTMLImageElement;
+          if (imgElement && m?.data) {
+            imgElement.src = `data:image/jpeg;base64,${m.data}`;
+            if (activeCameraTopicRef.current !== name) {
+              activeCameraTopicRef.current = name;
+              addLog(`Camera stream active on ${name}`);
+            }
           }
+        } catch (err) {
+          addLog(`[ERROR] Camera frame failed: ${err instanceof Error ? err.message : String(err)}`);
         }
       });
 
@@ -580,8 +652,12 @@ export default function App() {
         name: t.name,
         messageType: t.type
       });
-      topic.subscribe((msg: any) => {
-        setCustomTopicData(prev => ({ ...prev, [t.name]: msg }));
+      topic.subscribe((msg: unknown) => {
+        try {
+          setCustomTopicData(prev => ({ ...prev, [t.name]: msg }));
+        } catch (err) {
+          addLog(`[ERROR] Custom topic ${t.name} parsing failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
       });
       currentSubs[t.name] = topic;
     });
@@ -606,8 +682,7 @@ export default function App() {
 
   const executeModeChange = (newMode: string) => {
     if (ros && rosStatus === 'connected') {
-      const modeCmd = new ROSLIB.Topic({ ros: ros, name: '/robot_mode', messageType: 'std_msgs/String' });
-      modeCmd.publish({ data: newMode } as any);
+      robotModeCmdRef.current?.publish({ data: newMode } as unknown);
     }
     
     setMode(newMode);
@@ -635,9 +710,10 @@ export default function App() {
     navigator.clipboard.writeText(text)
       .then(() => {
         setCopyStatus(prev => ({ ...prev, [topicName]: true }));
-        setTimeout(() => {
+        if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+        copyTimerRef.current = setTimeout(() => {
           setCopyStatus(prev => ({ ...prev, [topicName]: false }));
-        }, 2000);
+        }, COPY_STATUS_TTL_MS);
       })
       .catch(() => {
         addNotification('error', 'Copy to clipboard failed.');
@@ -664,16 +740,11 @@ export default function App() {
       addLog(`Cannot move: Robot is in ${mode} mode. Switch to Manual Control.`);
       return;
     }
-    const cmdVel = new ROSLIB.Topic({
-      ros: ros,
-      name: '/cmd_vel',
-      messageType: 'geometry_msgs/Twist'
-    });
     const twist = {
       linear: { x: lx, y: ly, z: 0.0 },
       angular: { x: 0.0, y: 0.0, z: az }
     };
-    cmdVel.publish(twist as any);
+    cmdVelRef.current?.publish(twist as unknown);
     addLog(`Published /cmd_vel: [lx:${lx}, ly:${ly}, az:${az}]`);
   };
 
@@ -686,14 +757,9 @@ export default function App() {
     }
     if (!ros || rosStatus !== 'connected') return;
     
-    const armCmd = new ROSLIB.Topic({
-      ros: ros,
-      name: `/arm/${arm}/joint_cmd`,
-      messageType: 'std_msgs/Float64'
-    });
-    
+    const armRef = arm === 'left' ? armLeftCmdRef : armRightCmdRef;
     // In a real scenario, we'd send a specific joint index and value
-    armCmd.publish({ data: direction * 0.1 } as any);
+    armRef.current?.publish({ data: direction * 0.1 } as unknown);
     addLog(`Published ${arm} arm command: ${joint} ${direction > 0 ? '+' : '-'}`);
   };
 
@@ -717,8 +783,7 @@ export default function App() {
     const cmdData = buildRosbagCommand(action, rosbagName.trim(), rosbagUseTimestamp, rosbagDuration);
 
     if (!demoMode && ros) {
-      const rosbagCmd = new ROSLIB.Topic({ ros: ros, name: '/rosbag_cmd', messageType: 'std_msgs/String' });
-      rosbagCmd.publish({ data: cmdData } as any);
+      rosbagCmdRef.current?.publish({ data: cmdData } as unknown);
     }
     
     if (action === 'record') setRosbagStatus('recording');
@@ -736,8 +801,7 @@ export default function App() {
   const handleSeek = (value: number) => {
     setRosbagProgress(value);
     if (ros && rosStatus === 'connected') {
-      const rosbagCmd = new ROSLIB.Topic({ ros: ros, name: '/rosbag_cmd', messageType: 'std_msgs/String' });
-      rosbagCmd.publish({ data: `seek:${value}` } as any);
+      rosbagCmdRef.current?.publish({ data: `seek:${value}` } as unknown);
       addLog(`Rosbag2 seek: ${value}%`);
     }
   };
@@ -748,100 +812,12 @@ export default function App() {
     if (rosbagStatus === 'playing') {
       interval = setInterval(() => {
         setRosbagProgress(p => (p >= 100 ? 0 : p + 1));
-      }, 1000);
+      }, PLAYBACK_INTERVAL_MS);
     }
     return () => clearInterval(interval);
   }, [rosbagStatus]);
 
-  // Keyboard Teleoperation
-  useEffect(() => {
-    const shouldIgnoreKeyboardShortcut = (target: EventTarget | null) => {
-      if (!(target instanceof HTMLElement)) return false;
-
-      const tagName = target.tagName;
-      return (
-        tagName === 'INPUT' ||
-        tagName === 'TEXTAREA' ||
-        tagName === 'SELECT' ||
-        tagName === 'BUTTON' ||
-        target.isContentEditable
-      );
-    };
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger when user is interacting with form controls/buttons.
-      if (shouldIgnoreKeyboardShortcut(e.target)) return;
-      if (activeTab !== 'dashboard') return;
-
-      const controlKeys = ['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd', 'q', 'e', ' ', 'i', 'k', 'j', 'l', 'u', 'o'];
-      if (controlKeys.includes(e.key.toLowerCase())) {
-        e.preventDefault();
-      }
-      
-      switch(e.key.toLowerCase()) {
-        case 'arrowup':
-        case 'w':
-          handleMove(0.5, 0, 0);
-          break;
-        case 'arrowdown':
-        case 's':
-          handleMove(-0.5, 0, 0);
-          break;
-        case 'arrowleft':
-        case 'a':
-          handleMove(0, 0.5, 0);
-          break;
-        case 'arrowright':
-        case 'd':
-          handleMove(0, -0.5, 0);
-          break;
-        case 'q':
-          handleMove(0, 0, 0.5);
-          break;
-        case 'e':
-          handleMove(0, 0, -0.5);
-          break;
-        // Arm Controls
-        case 'i':
-          handleArmMove('left', 'pitch', 1);
-          break;
-        case 'k':
-          handleArmMove('left', 'pitch', -1);
-          break;
-        case 'j':
-          handleArmMove('left', 'roll', 1);
-          break;
-        case 'l':
-          handleArmMove('left', 'roll', -1);
-          break;
-        case 'u':
-          handleArmMove('right', 'pitch', 1);
-          break;
-        case 'o':
-          handleArmMove('right', 'pitch', -1);
-          break;
-        case ' ':
-          emergencyStop();
-          break;
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (shouldIgnoreKeyboardShortcut(e.target)) return;
-
-      if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd', 'q', 'e'].includes(e.key.toLowerCase())) {
-        e.preventDefault();
-        stopMove();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
-  }, [activeTab, ros, rosStatus, mode, demoMode]);
+  useKeyboardControls({ activeTab, handleMove, handleArmMove, emergencyStop, stopMove });
 
   // Demo simulation effect — generates synthetic telemetry when demo mode is active
   useEffect(() => {
@@ -863,8 +839,8 @@ export default function App() {
       batteryTick++;
 
       // Battery slow drain (~1% every 30 s at 100 ms interval)
-      if (batteryTick % 300 === 0) {
-        setBattery(prev => Math.max(20, prev - 1));
+      if (batteryTick % BATTERY_DRAIN_TICKS === 0) {
+        setBattery(prev => Math.max(20, (prev ?? 100) - 1));
       }
 
       // Joint oscillations
@@ -874,8 +850,8 @@ export default function App() {
           if (!next[name]) return;
           const posRad = (JOINT_AMPS[idx] * Math.sin(t + idx * 0.7)) * Math.PI / 180;
           const effort = Math.max(0, TORQUE_BASE[idx] + 0.4 * Math.sin(t * 1.3 + idx));
-          const posHistory   = [...next[name].posHistory, posRad].slice(-30);
-          const torqueHistory = [...next[name].torqueHistory, effort].slice(-30);
+          const posHistory   = [...next[name].posHistory, posRad].slice(-JOINT_HISTORY_SIZE);
+          const torqueHistory = [...next[name].torqueHistory, effort].slice(-JOINT_HISTORY_SIZE);
           next[name] = {
             ...next[name],
             pos: `${(posRad * 180 / Math.PI).toFixed(1)}°`,
@@ -892,7 +868,7 @@ export default function App() {
         const points: number[][] = [];
         for (let i = 0; i < 180; i++) {
           const angle = (i * 2 * Math.PI) / 180;
-          const r = 2.5 + Math.sin(angle * 4 + t * 0.5) * 0.8 + (Math.random() - 0.5) * 0.3;
+          const r = 2.5 + Math.sin(angle * 4 + t * 0.5) * MAX_LIDAR_NOISE_M + (Math.random() - 0.5) * 0.3;
           points.push([r * Math.cos(angle), 0, r * Math.sin(angle)]);
         }
         setLidarPoints(points);
@@ -907,12 +883,12 @@ export default function App() {
       setRobotPose({ x, y, yaw });
       setTrajectory(prev => {
         const last = prev[prev.length - 1];
-        if (!last || Math.sqrt((last.x - x) ** 2 + (last.y - y) ** 2) > 0.1) {
-          return [...prev, { x, y }].slice(-200);
+        if (!last || Math.sqrt((last.x - x) ** 2 + (last.y - y) ** 2) > MOVEMENT_THRESHOLD_M) {
+          return [...prev, { x, y }].slice(-TRAJECTORY_HISTORY_SIZE);
         }
         return prev;
       });
-    }, 100);
+    }, SIMULATION_TICK_MS);
 
     return () => {
       clearInterval(tick);
@@ -967,30 +943,7 @@ export default function App() {
 
   return (
     <div className={`theme-shell min-h-screen bg-[#050505] text-neutral-300 font-sans flex flex-col selection:bg-emerald-500/30 ${theme === 'light' ? 'theme-light' : ''}`}>
-      {/* Notifications Overlay */}
-      <div className="fixed top-20 right-6 z-[100] flex flex-col gap-3 pointer-events-none">
-        {notifications.map(n => (
-          <div 
-            key={n.id} 
-            className={`
-              pointer-events-auto min-w-[280px] p-4 rounded-xl border backdrop-blur-xl shadow-2xl animate-in slide-in-from-right-10 duration-300
-              ${n.type === 'error' ? 'bg-red-500/10 border-red-500/30 text-red-400' : 
-                n.type === 'warning' ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400' : 
-                'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'}
-            `}
-          >
-            <div className="flex items-center gap-3">
-              {n.type === 'error' ? <ShieldAlert className="w-5 h-5" /> : 
-               n.type === 'warning' ? <AlertTriangle className="w-5 h-5" /> : 
-               <Info className="w-5 h-5" />}
-              <div className="flex flex-col">
-                <span className="text-[11px] font-bold uppercase tracking-widest opacity-50">{n.type}</span>
-                <span className="text-sm font-medium">{n.message}</span>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+      <NotificationToast notifications={notifications} />
       {/* Header */}
       <header className="h-16 border-b border-neutral-800/60 bg-[#0a0a0a] flex items-center justify-between px-6 shrink-0">
         <div className="flex items-center gap-4">
@@ -1069,51 +1022,15 @@ export default function App() {
             DEMO
           </button>
 
-          {/* ROS2 Connection UI */}
-          <div className={`flex items-center gap-2 bg-neutral-900/50 p-1 rounded-lg border border-neutral-800/60 relative transition-opacity ${demoMode ? 'opacity-40 pointer-events-none' : ''}`}>
-            {rosConfirmAction ? (
-              <div className="flex items-center gap-2 px-2">
-                <span className="text-[9px] font-bold text-yellow-500 uppercase tracking-widest whitespace-nowrap">
-                  Confirm {rosConfirmAction}?
-                </span>
-                <button 
-                  onClick={() => setRosConfirmAction(null)}
-                  className="px-2 py-1 bg-neutral-800 text-neutral-400 rounded text-[9px] font-bold hover:text-neutral-200 transition-colors"
-                >
-                  NO
-                </button>
-                <button 
-                  onClick={() => connectROS(true)}
-                  className="px-2 py-1 bg-yellow-500/20 text-yellow-500 border border-yellow-500/30 rounded text-[9px] font-bold hover:bg-yellow-500/30 transition-colors"
-                >
-                  YES
-                </button>
-              </div>
-            ) : (
-              <>
-                <input
-                  type="text"
-                  value={rosUrl}
-                  onChange={(e) => setRosUrl(e.target.value)}
-                  className="bg-transparent border-none text-[10px] px-2 py-1 text-neutral-400 w-36 focus:outline-none focus:text-neutral-200"
-                  placeholder="ws://localhost:9090"
-                  disabled={rosStatus === 'connected' || rosStatus === 'connecting'}
-                />
-                <button
-                  onClick={() => connectROS()}
-                  className={`px-3 py-1.5 rounded text-[10px] font-bold tracking-wider uppercase transition-colors flex items-center gap-1 ${
-                    rosStatus === 'connected' 
-                      ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20' 
-                      : rosStatus === 'connecting'
-                      ? 'bg-yellow-500/10 text-yellow-400'
-                      : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
-                  }`}
-                >
-                  {rosStatus === 'connected' ? <><Link2Off className="w-3 h-3"/> Disconnect</> : <><Link className="w-3 h-3"/> Connect</>}
-                </button>
-              </>
-            )}
-          </div>
+          <ConnectionPanel
+            rosStatus={rosStatus}
+            rosUrl={rosUrl}
+            setRosUrl={setRosUrl}
+            connectROS={connectROS}
+            rosConfirmAction={rosConfirmAction}
+            setRosConfirmAction={setRosConfirmAction}
+            demoMode={demoMode}
+          />
 
           <div className="flex items-center gap-2 text-neutral-400">
             <Activity className="w-4 h-4" />
@@ -1249,7 +1166,7 @@ export default function App() {
                   />
                   <button 
                     onClick={() => {
-                      if (customTopicName && customTopicType && !customTopics.find(t => t.name === customTopicName)) {
+                      if (customTopicName && customTopicType && !customTopics.find(t => t.name === customTopicName) && customTopicName.startsWith('/') && /^\/[a-zA-Z/][a-zA-Z0-9_/]*$/.test(customTopicName)) {
                         setCustomTopics(prev => [...prev, { name: customTopicName, type: customTopicType }]);
                         setCustomTopicName('');
                         setCustomTopicType('');
@@ -2259,7 +2176,12 @@ export default function App() {
                   <input
                     type="text"
                     value={rosbagName}
-                    onChange={(e) => setRosbagName(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (/^[a-zA-Z0-9_\-. ]*$/.test(val)) {
+                        setRosbagName(val);
+                      }
+                    }}
                     placeholder="Filename (e.g., test_run_01)"
                     disabled={rosbagStatus !== 'idle'}
                     className="flex-1 bg-neutral-900/50 border border-neutral-800 rounded-lg px-3 py-2 text-[10px] font-mono text-neutral-300 focus:outline-none focus:border-neutral-600 disabled:opacity-50 placeholder:text-neutral-600"
@@ -2278,7 +2200,7 @@ export default function App() {
                   <input
                     type="number"
                     value={rosbagDuration}
-                    onChange={(e) => setRosbagDuration(parseInt(e.target.value) || 0)}
+                    onChange={(e) => setRosbagDuration(Math.min(Math.max(0, parseInt(e.target.value) || 0), ROSBAG_MAX_DURATION_S))}
                     placeholder="0 = ∞"
                     disabled={rosbagStatus !== 'idle'}
                     className="w-16 bg-neutral-900/50 border border-neutral-800 rounded-lg px-2 py-1 text-[10px] font-mono text-neutral-300 focus:outline-none focus:border-neutral-600 disabled:opacity-50"
@@ -2443,42 +2365,57 @@ export default function App() {
 );
 }
 
-function JsonView({ data }: { data: any }) {
-  if (!data) return <span className="text-neutral-600 text-[10px] font-mono italic">Waiting for messages...</span>;
+function JsonView({ data }: { data: unknown }) {
+  if (data === undefined || data === null) {
+    return <span className="text-neutral-600 text-[10px] font-mono italic">Waiting for messages...</span>;
+  }
 
-  const json = JSON.stringify(data, null, 2);
-  
-  // Simple syntax highlighting using regex
-  // We escape HTML characters first to prevent XSS and ensure correct rendering
-  const escaped = json
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-
-  const highlighted = escaped.replace(
-    /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
-    (match) => {
-      let cls = 'text-blue-400'; // number
-      if (/^"/.test(match)) {
-        if (/:$/.test(match)) {
-          cls = 'text-emerald-400'; // key
-        } else {
-          cls = 'text-yellow-400'; // string
-        }
-      } else if (/true|false/.test(match)) {
-        cls = 'text-purple-400'; // boolean
-      } else if (/null/.test(match)) {
-        cls = 'text-red-400'; // null
-      }
-      return `<span class="${cls}">${match}</span>`;
+  const renderValue = (val: unknown, depth = 0): React.ReactNode => {
+    if (val === null) return <span className="text-red-400">null</span>;
+    if (typeof val === 'boolean') return <span className="text-purple-400">{String(val)}</span>;
+    if (typeof val === 'number') return <span className="text-blue-400">{val}</span>;
+    if (typeof val === 'string') return <span className="text-yellow-400">"{val}"</span>;
+    if (Array.isArray(val)) {
+      if (val.length === 0) return <span className="text-neutral-400">[]</span>;
+      if (depth > 2) return <span className="text-neutral-500">[…{val.length}]</span>;
+      return (
+        <span>
+          {'['}
+          {val.map((item, i) => (
+            <span key={i}>
+              {i > 0 && ', '}
+              {renderValue(item, depth + 1)}
+            </span>
+          ))}
+          {']'}
+        </span>
+      );
     }
-  );
+    if (typeof val === 'object') {
+      const entries = Object.entries(val as Record<string, unknown>);
+      if (depth > 2) return <span className="text-neutral-500">{'{'}&hellip;{'}'}</span>;
+      return (
+        <span>
+          {'{'}
+          {entries.map(([k, v], i) => (
+            <span key={k}>
+              {i > 0 && ', '}
+              <span className="text-emerald-400">"{k}"</span>
+              {': '}
+              {renderValue(v, depth + 1)}
+            </span>
+          ))}
+          {'}'}
+        </span>
+      );
+    }
+    return <span className="text-neutral-400">{String(val)}</span>;
+  };
 
   return (
-    <pre 
-      className="text-[10px] font-mono m-0 leading-relaxed"
-      dangerouslySetInnerHTML={{ __html: highlighted }}
-    />
+    <pre className="text-[10px] font-mono m-0 leading-relaxed whitespace-pre-wrap break-all">
+      {renderValue(data)}
+    </pre>
   );
 }
 
