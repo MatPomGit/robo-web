@@ -36,8 +36,9 @@ jobs:
         run: npm run build
 
       - name: Upload build artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: dist
           path: dist/
-          retention-days: 7
+          retention-days: 3
